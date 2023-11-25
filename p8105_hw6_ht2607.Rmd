@@ -107,3 +107,39 @@ model_values <- purrr::map(models, ~ extract_values(.))
 model_matrix <- bind_rows(model_values)
 ```
 
+```{r}
+# Plotting the distributions
+dist_r= 
+ggplot(model_matrix, aes(x = rsquared)) +
+  geom_histogram(binwidth = 0.01, fill = "red", color = "black") +
+  labs(title = "Distribution of R-squared", x = "R-squared")
+
+beta_plot=
+ggplot(model_matrix, aes(x = beta_product)) +
+  geom_histogram(binwidth = 0.1, fill = "red", color = "black") +
+  labs(title = "Distribution of log(beta1 * beta2)", x = "log(beta1 * beta2)")
+
+#view the plot
+dist_r
+beta_plot
+```
+
+```{r}
+# Remove rows with missing or NaN values in beta_product column
+cleaned_model_matrix <- model_matrix |> 
+  filter(!is.na(beta_product) & !is.nan(beta_product))
+
+# Confidence intervals for R-squared and log(beta1 * beta2) using dplyr's summarize()
+confidence_intervals= 
+  cleaned_model_matrix |> 
+  summarise(
+    ci_lower_rsquared = quantile(rsquared, 0.025, na.rm = TRUE),
+    ci_upper_rsquared = quantile(rsquared, 0.975, na.rm = TRUE),
+    ci_lower_beta = quantile(beta_product, 0.025, na.rm = TRUE),
+    ci_upper_beta = quantile(beta_product, 0.975, na.rm = TRUE)
+  )
+
+confidence_intervals
+```
+
+## Question 3
