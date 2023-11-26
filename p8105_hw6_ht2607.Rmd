@@ -144,3 +144,121 @@ confidence_intervals
 
 ## Question 3
 
+```{r}
+birthweight_df = 
+  read_csv(file = "/Users/cindytseng/Desktop/p8105_hw6_ht2607/data/birthweight.csv",
+           na = ".") |>
+  janitor::clean_names() |> 
+  drop_na()
+
+# Convert 'babysex' to factor
+birthweight_df$babysex <- factor(birthweight_df$babysex, levels = c(1, 2), labels = c("male", "female"))
+```
+
+```{r}
+# Model building
+birthweight_model= 
+  lm(bwt ~ bhead + blength + gaweeks + fincome + frace, data = birthweight_df)
+
+# Checking the fit model
+summary(birthweight_model)
+
+# Assuming 'initial_model' is your linear regression model and 'data' is your dataset
+formula <- as.formula("bwt ~ bhead + blength + gaweeks + fincome + frace")
+
+# Define the number of folds for cross-validation
+k <- 10  # Number of folds
+
+# Perform k-fold cross-validation
+set.seed(1)  # Set seed for reproducibility
+fold_indices <- sample(1:k, nrow(birthweight_df), replace = TRUE)
+
+# Initialize vectors to store predictions and actual values
+all_predictions <- numeric()
+all_actual <- numeric()
+
+for (i in 1:k) {
+  fold_data <- birthweight_df[fold_indices == i, ]  # Subset birthweight_df for the current fold
+  fold_train <- birthweight_df[fold_indices != i, ]  # Training birthweight_df for the current fold
+  
+  # Fit the model on training data
+  fold_model <- lm(bwt ~ bhead + blength + gaweeks + fincome + frace, data = fold_train)
+  
+  # Predict on the validation set
+  fold_predictions <- predict(fold_model, newdata = fold_data)
+  
+  # Store predictions and actual values
+  all_predictions <- c(all_predictions, fold_predictions)
+  all_actual <- c(all_actual, fold_data$bwt)
+}
+
+# Compute RMSE and R-squared
+RMSE <- sqrt(mean((all_predictions - all_actual)^2))
+R_squared <- cor(all_predictions, all_actual)^2
+
+# View computed metrics
+RMSE
+R_squared
+
+```
+
+```{r}
+# Get fitted values and residuals
+birthweight_model_df <- data.frame(
+  .fitted = fitted(birthweight_model),  # Fitted values from the model
+  .resid = residuals(birthweight_model) # Residuals from the model
+)
+
+# Plotting for residuals against fitted values
+ggplot(birthweight_model_df, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs Fitted Values Plot")
+```
+
+Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
+
+```{r}
+# Define the number of folds for cross-validation
+k <- 10  # Number of folds
+
+# Function to perform cross-validation and return MSE
+perform_cv <- function(model, birthweight_df, k) {
+  set.seed(1)  # Set seed for reproducibility
+  n <- nrow(birthweight_df)
+  fold_indices <- sample(1:k, n, replace = TRUE)
+
+  mse_values <- numeric(k)
+
+  for (i in 1:k) {
+    fold_data <- birthweight_df[fold_indices == i, ]
+    fold_train <- birthweight_df[fold_indices != i, ]
+
+    # Fit the model on training data
+    fold_model <- lm(model, data = fold_train)
+
+    # Predict on the validation set
+    fold_predictions <- predict(fold_model, newdata = fold_data)
+
+    # Compute MSE for the fold
+    mse_values[i] <- mean((fold_predictions - fold_data$bwt)^2)
+  }
+
+  return(mean(mse_values))
+}
+
+# Model 1 - Using Length at Birth and Gestational Age as Predictors (Main Effects)
+# Perform cross-validation for Model 1
+mse_model_1 <- perform_cv("bwt ~ blength + gaweeks", birthweight_df, k)
+
+# Model 2 - Using Head Circumference, Length, Sex, and Interactions
+# Perform cross-validation for Model 2
+mse_model_2 <- perform_cv("bwt ~ bhead + blength + babysex + bhead:blength + bhead:babysex + blength:babysex + bhead:blength:babysex", birthweight_df, k)
+
+# Compare the models by comparing their MSE
+mse_model_1  # View MSE for Model 1
+mse_model_2  # View MSE for Model 2
+
+
+```
+
