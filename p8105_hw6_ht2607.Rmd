@@ -123,6 +123,12 @@ ggplot(model_matrix, aes(x = beta_product)) +
 dist_r
 beta_plot
 ```
+since beta2 is negative, which we cannot take the log to the negative value; therefore, 
+the when ploting there are 3361 data out of 5000 from the bootstraping result removed. 
+beta_plot
+Warning message:
+Removed 3361 rows containing non-finite values (`stat_bin()`). 
+
 
 ```{r}
 # Remove rows with missing or NaN values in beta_product column
@@ -214,6 +220,7 @@ ggplot(birthweight_model_df, aes(x = .fitted, y = .resid)) +
   geom_point() +
   geom_hline(yintercept = 0, linetype = "dashed") +
   labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs Fitted Values Plot")
+
 ```
 
 Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
@@ -259,6 +266,5 @@ mse_model_2 <- perform_cv("bwt ~ bhead + blength + babysex + bhead:blength + bhe
 mse_model_1  # View MSE for Model 1
 mse_model_2  # View MSE for Model 2
 
-
 ```
-
+violin plot for 3 models (one from the previous and other from the model 1 and 2)
