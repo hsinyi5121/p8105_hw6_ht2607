@@ -38,12 +38,80 @@ scale_fill_discrete = scale_fill_viridis_d
 
 ### Question 1
 
-```{r}
+In the data cleaning code below we create a `city_state` variable, change `victim_age` to numeric, modifiy victim_race to have categories white and non-white, with white as the reference category, and create a `resolution` variable indicating whether the homicide is solved. Lastly, we filtered out the following cities: Tulsa, AL; Dallas, TX; Phoenix, AZ; and Kansas City, MO; and we retained only the variables `city_state`, `resolution`, `victim_age`, `victim_sex`, and `victim_race`.
 
+```{r q1_data_cleaning}
+homicide_df = 
+  read_csv("data/homicide-data.csv", na = c("", "NA", "Unknown")) |> 
+  mutate(
+    city_state = str_c(city, state, sep = ", "),
+    victim_age = as.numeric(victim_age),
+    resolution = case_when(
+      disposition == "Closed without arrest" ~ 0,
+      disposition == "Open/No arrest"        ~ 0,
+      disposition == "Closed by arrest"      ~ 1)
+  ) |> 
+  filter(victim_race %in% c("White", "Black")) |> 
+  filter(!(city_state %in% c("Tulsa, AL", "Dallas, TX", "Phoenix, AZ", "Kansas City, MO"))) |> 
+  select(city_state, resolution, victim_age, victim_sex, victim_race)
 ```
 
+Next we fit a logistic regression model using only data from Baltimore, MD. We model `resolved` as the outcome and `victim_age`, `victim_sex`, and `victim_race` as predictors. We save the output as `baltimore_glm` so that we can apply `broom::tidy` to this object and obtain the estimate and confidence interval of the adjusted odds ratio for solving homicides comparing non-white victims to white victims.
+
+```{r q1_glm_baltimore}
+baltimore_glm = 
+  filter(homicide_df, city_state == "Baltimore, MD") |> 
+  glm(resolution ~ victim_age + victim_sex + victim_race, family = binomial(), data = _)
+
+baltimore_glm |> 
+  broom::tidy() |> 
+  mutate(
+    OR = exp(estimate), 
+    OR_CI_upper = exp(estimate + 1.96 * std.error),
+    OR_CI_lower = exp(estimate - 1.96 * std.error)) |> 
+  filter(term == "victim_sexMale") |> 
+  select(OR, OR_CI_lower, OR_CI_upper) |>
+  knitr::kable(digits = 3)
+```
+
+Below, by incorporating `nest()`, `map()`, and `unnest()` into the preceding Baltimore-specific code, we fit a model for each of the cities, and extract the adjusted odds ratio (and CI) for solving homicides comparing non-white victims to white victims. We show the first 5 rows of the resulting dataframe of model results.
+
+```{r q1_glm_all_cities}
+model_results = 
+  homicide_df |> 
+  nest(data = -city_state) |> 
+  mutate(
+    models = map(data, \(df) glm(resolution ~ victim_age + victim_sex + victim_race, 
+                             family = binomial(), data = df)),
+    tidy_models = map(models, broom::tidy)) |> 
+  select(-models, -data) |> 
+  unnest(cols = tidy_models) |> 
+  mutate(
+    OR = exp(estimate), 
+    OR_CI_upper = exp(estimate + 1.96 * std.error),
+    OR_CI_lower = exp(estimate - 1.96 * std.error)) |> 
+  filter(term == "victim_sexMale") |> 
+  select(city_state, OR, OR_CI_lower, OR_CI_upper)
+
+model_results |>
+  slice(1:5) |> 
+  knitr::kable(digits = 3)
+```
+
+Below we generate a plot of the estimated ORs and CIs for each city, ordered by magnitude of the OR from smallest to largest. From this plot we see that most cities have odds ratios that are smaller than 1, suggesting that crimes with male victims have smaller odds of resolution compared to crimes with female victims after adjusting for victim age and race. This disparity is strongest in New yrok. In roughly half of these cities, confidence intervals are narrow and do not contain 1, suggesting a significant difference in resolution rates by sex after adjustment for victim age and race. 
+
+```{r q1_plot}
+model_results |> 
+  mutate(city_state = fct_reorder(city_state, OR)) |> 
+  ggplot(aes(x = city_state, y = OR)) + 
+  geom_point() + 
+  geom_errorbar(aes(ymin = OR_CI_lower, ymax = OR_CI_upper)) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
 
 ### Question 2
+
+Step 1: loaded the needed package and set the seed for the work
 
 ```{r}
 library(tidyverse)
@@ -51,6 +119,8 @@ library(p8105.datasets)
 
 set.seed(1)
 ```
+
+Step 2: downloaded the dataset and named 'weather_df'
 
 ```{r}
 weather_df = 
@@ -66,12 +136,16 @@ weather_df =
   select(name, id, everything())
 ```
 
+Step 3: created a linear regression model 
+
 ```{r}
 # Defining the linear regression model function
 lm_model <- function(data) {
   lm(tmax ~ tmin + prcp, data = data)
 }
 ```
+
+Step 4: using bootstrap with 5000 samples from the weather_df dataset , then fit into the linear regression model that defined in the previous step. Then, extrea the coefficients from the bootstrap sample. 
 
 ```{r}
 # Use modelr::bootstrap with n = 5000 and purrr::map functions
@@ -83,6 +157,8 @@ models <- purrr::map(bootstrap_results$strap, ~ lm_model(.))
 # Extract coefficients using broom::tidy
 results <- purrr::map(models, broom::tidy)
 ```
+
+Step 5: extract r-squares and log(beta1 * beta2) from the bootstrap result 
 
 ```{r}
 # Extract R-squared and log(beta1 * beta2) using broom::glance() and broom::tidy()
@@ -97,15 +173,21 @@ extract_values <- function(fit) {
 }
 ```
 
+Step 6: applying the model to each extract values
+
 ```{r}
 # Applying the function to each fitted model using purrr::map
 model_values <- purrr::map(models, ~ extract_values(.))
 ```
 
+Step 7: combine the all the model values 
+
 ```{r}
 # Combining the values into a matrix using bind_rows
 model_matrix <- bind_rows(model_values)
 ```
+
+Step 8: plotting the distributions
 
 ```{r}
 # Plotting the distributions
@@ -123,12 +205,10 @@ ggplot(model_matrix, aes(x = beta_product)) +
 dist_r
 beta_plot
 ```
-since beta2 is negative, which we cannot take the log to the negative value; therefore, 
-the when ploting there are 3361 data out of 5000 from the bootstraping result removed. 
-beta_plot
-Warning message:
-Removed 3361 rows containing non-finite values (`stat_bin()`). 
 
+The distribution of the r squared plot seen to be normal distribute, where the peak point is around 0.92. However, the beta_plot seen to be left skewed, which the mean is greater the median in this dataset. However, this might due to the reason that since beta2 is negative, which we cannot take the log to the negative value. As a result, when we are plotting there are 3361 data points were removed from the 5000 booststraping result. 
+
+Step 9: removed the NAs from the model values and summarise the confidence intervals from the clean model dataframe
 
 ```{r}
 # Remove rows with missing or NaN values in beta_product column
@@ -148,7 +228,14 @@ confidence_intervals=
 confidence_intervals
 ```
 
+The confidence interval is 
+ ci_lower_rsquared ci_upper_rsquared ci_lower_beta ci_upper_beta
+ 
+1          0.880             0.927         -8.98         -4.60
+
 ## Question 3
+
+Step 1: imported the data into r, clean the dataset to removed any NAs, and convert numeric to factor for the variables 'babysex', 'malform', 'frace', and 'mrace'.
 
 ```{r}
 birthweight_df = 
@@ -159,7 +246,18 @@ birthweight_df =
 
 # Convert 'babysex' to factor
 birthweight_df$babysex <- factor(birthweight_df$babysex, levels = c(1, 2), labels = c("male", "female"))
+
+# Convert 'malform' to factor
+birthweight_df$malform <- factor(birthweight_df$malform, levels = c(0, 1), labels = c("absent", "present"))
+
+# Convert 'frace' to factor
+birthweight_df$frace <- factor(birthweight_df$frace, levels = c(1, 2, 3, 4, 8, 9), labels = c("White", "Black", "Asian","Puerto Rican", "Other", "Unknown" ))
+
+# Convert 'mrace' to factor
+birthweight_df$mrace <- factor(birthweight_df$mrace, levels = c(1, 2, 3, 4, 8), labels = c("White", "Black", "Asian","Puerto Rican", "Other"))
 ```
+
+Step 2: Builded my own regression model and performed cross-validation. Then, created a dataframe to store the results and fit the values to the building model to compute RMSE and R-squared.
 
 ```{r}
 # Model building
@@ -205,8 +303,14 @@ R_squared <- cor(all_predictions, all_actual)^2
 # View computed metrics
 RMSE
 R_squared
-
 ```
+
+RMSE: 281.1184
+R_squared: 0.6986482
+
+Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
+
+Step 3: getting the fitted value and residuals by fitting into the building model. Then, plotting for residuals against fitted values using the add_predictions and add_residuals. 
 
 ```{r}
 # Get fitted values and residuals
@@ -223,10 +327,18 @@ ggplot(birthweight_model_df, aes(x = .fitted, y = .resid)) +
 
 ```
 
-Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
+From the plot, it is clear to see that majority of the random dispersion of residuals are around the zero line, indicating good adherence to homoscedasticity and linearity assumptions. Yet, a few outliers, especially for higher fitted values, imply the model's struggle in predicting unusually large or small birthweights. However, there's no distinct pattern indicating non-linearity or heteroscedasticity from this plot.
+
+Step 4: setting the seed and perform cross validation using crossv_mc function into multiple folds with 100 repetitions and 0.2 train-test. Then, the dataset is splits into two tibbles (train and test). In addition, using the training data to fit into three different models (my_model, model_1, and model_2). Afterward, using  map2_dbl function to calculate the RMSE for each model applied to the respective test set create a new columen to store the computed RMSE values for the respective models ((rmse_my_model, rmse_model_1, rmse_model_2).
+
+Model descriptions: 
+
+my_model: Multiple linear regression (lm) using a set of predictor variables (bhead, blength, gaweeks, fincome, frace).
+model_1: Another linear regression using a subset of predictors (blength and gaweeks).
+model_2: A more complex regression model involving interactions and higher-order terms among predictors (bhead, blength, babysex).
 
 ```{r}
-#### Computing rmse of models through cross validaiton
+#### Computing rmse of models through cross validation
 set.seed(1)
 
 birthweight_dataset <-
@@ -254,20 +366,7 @@ birth_df <-
    )
 ```
 
-Setting Seed: set.seed(1) ensures reproducibility by fixing the seed value for any random number generation.
-
-Cross-Validation: crossv_mc is a function used to create a cross-validation scheme. It appears to be splitting the birthweight_df dataset into multiple folds for cross-validation, with 100 repetitions (n = 100) and a 80:20 train-test split (test = 0.2).
-
-Data Preparation: The resulting birthweight_dataset is processed to convert the 'train' and 'test' splits into tibbles (rectangular data frames) using map function from the purrr package.
-
-Model Fitting: Three different models are fitted to the training data:
-
-my_model: Multiple linear regression (lm) using a set of predictor variables (bhead, blength, gaweeks, fincome, frace).
-model_1: Another linear regression using a subset of predictors (blength and gaweeks).
-model_2: A more complex regression model involving interactions and higher-order terms among predictors (bhead, blength, babysex).
-Evaluation: The code then evaluates the performance of these models on the test sets using root mean square error (rmse). This is done by employing the map2_dbl function from the purrr package to calculate the RMSE for each model applied to the respective test set.
-
-Creation of Metrics: Finally, the code creates new columns in birth_df (rmse_my_model, rmse_model_1, rmse_model_2) to store the computed RMSE values for the respective models.
+Step 5: combined the the RMSE values and created plot showing the prediction of the error distributions across all three models. 
 
 ```{r}
 birth_df |> 
@@ -288,4 +387,4 @@ birth_df |>
   theme_minimal()
 ```
 
-
+From the plot, it is clear to see that my model has the lowest RMSE among the three model, followed by the three way interaction. This means my model fits the data well and has more precise predictions. On the other hand, the length + gestational age model have the highest RMSE which this model did not fit the data well, suggest more error and less precise predictions.
