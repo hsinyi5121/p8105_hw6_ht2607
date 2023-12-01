@@ -226,45 +226,66 @@ ggplot(birthweight_model_df, aes(x = .fitted, y = .resid)) +
 Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
 
 ```{r}
-# Define the number of folds for cross-validation
-k <- 10  # Number of folds
+#### Computing rmse of models through cross validaiton
+set.seed(1)
 
-# Function to perform cross-validation and return MSE
-perform_cv <- function(model, birthweight_df, k) {
-  set.seed(1)  # Set seed for reproducibility
-  n <- nrow(birthweight_df)
-  fold_indices <- sample(1:k, n, replace = TRUE)
+birthweight_dataset <-
+  birthweight_df |>  
+  crossv_mc(n = 100,test = 0.2)
+  
 
-  mse_values <- numeric(k)
+birth_df <- 
+  birthweight_dataset |> 
+   mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
 
-  for (i in 1:k) {
-    fold_data <- birthweight_df[fold_indices == i, ]
-    fold_train <- birthweight_df[fold_indices != i, ]
-
-    # Fit the model on training data
-    fold_model <- lm(model, data = fold_train)
-
-    # Predict on the validation set
-    fold_predictions <- predict(fold_model, newdata = fold_data)
-
-    # Compute MSE for the fold
-    mse_values[i] <- mean((fold_predictions - fold_data$bwt)^2)
-  }
-
-  return(mean(mse_values))
-}
-
-# Model 1 - Using Length at Birth and Gestational Age as Predictors (Main Effects)
-# Perform cross-validation for Model 1
-mse_model_1 <- perform_cv("bwt ~ blength + gaweeks", birthweight_df, k)
-
-# Model 2 - Using Head Circumference, Length, Sex, and Interactions
-# Perform cross-validation for Model 2
-mse_model_2 <- perform_cv("bwt ~ bhead + blength + babysex + bhead:blength + bhead:babysex + blength:babysex + bhead:blength:babysex", birthweight_df, k)
-
-# Compare the models by comparing their MSE
-mse_model_1  # View MSE for Model 1
-mse_model_2  # View MSE for Model 2
-
+birth_df <-
+  birth_df |> 
+    mutate(
+    my_model  = map(train, ~lm(bwt ~ bhead + blength + gaweeks + fincome + frace, data = birthweight_df)),
+    model_1 = map(train, ~lm(bwt ~ blength + gaweeks, data = birthweight_df)),
+    model_2  = map(train, ~lm(bwt ~ bhead + blength + babysex + bhead:blength + bhead:babysex + blength:babysex + bhead:blength:babysex, data = birthweight_df)
+)) |> 
+   mutate(
+    rmse_my_model = map2_dbl(my_model, test, ~rmse(model = .x, data = .y)),
+    rmse_model_1 = map2_dbl(model_1, test, ~rmse(model = .x, data = .y)),
+    rmse_model_2 = map2_dbl(model_2, test, ~rmse(model = .x, data = .y))
+   )
 ```
-violin plot for 3 models (one from the previous and other from the model 1 and 2)
+
+Setting Seed: set.seed(1) ensures reproducibility by fixing the seed value for any random number generation.
+
+Cross-Validation: crossv_mc is a function used to create a cross-validation scheme. It appears to be splitting the birthweight_df dataset into multiple folds for cross-validation, with 100 repetitions (n = 100) and a 80:20 train-test split (test = 0.2).
+
+Data Preparation: The resulting birthweight_dataset is processed to convert the 'train' and 'test' splits into tibbles (rectangular data frames) using map function from the purrr package.
+
+Model Fitting: Three different models are fitted to the training data:
+
+my_model: Multiple linear regression (lm) using a set of predictor variables (bhead, blength, gaweeks, fincome, frace).
+model_1: Another linear regression using a subset of predictors (blength and gaweeks).
+model_2: A more complex regression model involving interactions and higher-order terms among predictors (bhead, blength, babysex).
+Evaluation: The code then evaluates the performance of these models on the test sets using root mean square error (rmse). This is done by employing the map2_dbl function from the purrr package to calculate the RMSE for each model applied to the respective test set.
+
+Creation of Metrics: Finally, the code creates new columns in birth_df (rmse_my_model, rmse_model_1, rmse_model_2) to store the computed RMSE values for the respective models.
+
+```{r}
+birth_df |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    cols = starts_with("rmse"),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") |>  
+  mutate(model = fct_inorder(model)) |>  
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin() +
+  labs(title = 
+  "Prediction Distributions of Error Across Models", 
+       x = "Models", y = "Root Mean Square Error")  +
+  scale_x_discrete(
+    labels = c("My Model", "Length + Gestational Age", "Three-way Interaction")) +
+  theme_minimal()
+```
+
+
